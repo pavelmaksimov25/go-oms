@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package saga.v1;
+
+option go_package = "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1;sagav1";
+
+import "google/protobuf/timestamp.proto";
+
+// SagaEvent is the envelope for all Kafka messages in the saga flow.
+message SagaEvent {
+  string saga_id = 1;
+  string event_type = 2;
+  bytes payload = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// ── Order events ────────────────────────────────────────────────────────────
+
+message OrderCreatedEvent {
+  string order_id = 1;
+  repeated OrderItem items = 2;
+  double total_amount = 3;
+}
+
+message OrderItem {
+  string item_id = 1;
+  int32 quantity = 2;
+}
+
+// ── Inventory commands / events ─────────────────────────────────────────────
+
+message InventoryReserveCommand {
+  string order_id = 1;
+  repeated OrderItem items = 2;
+}
+
+message InventoryReservedEvent {
+  string order_id = 1;
+}
+
+message InventoryFailedEvent {
+  string order_id = 1;
+  string reason = 2;
+}
+
+message InventoryReleaseCommand {
+  string order_id = 1;
+  repeated OrderItem items = 2;
+}
+
+message InventoryReleasedEvent {
+  string order_id = 1;
+}
+
+// ── Payment commands / events ───────────────────────────────────────────────
+
+message PaymentChargeCommand {
+  string order_id = 1;
+  double amount = 2;
+}
+
+message PaymentChargedEvent {
+  string order_id = 1;
+  string payment_id = 2;
+}
+
+message PaymentFailedEvent {
+  string order_id = 1;
+  string reason = 2;
+}
+
+// ── Order result events ─────────────────────────────────────────────────────
+
+message OrderConfirmedEvent {
+  string order_id = 1;
+}
+
+message OrderRejectedEvent {
+  string order_id = 1;
+  string reason = 2;
+}

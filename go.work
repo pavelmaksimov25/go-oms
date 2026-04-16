@@ -1,0 +1,9 @@
+go 1.25.3
+
+use (
+	./pkg
+	./services/order
+	./services/inventory
+	./services/payment
+	./services/orchestrator
+)

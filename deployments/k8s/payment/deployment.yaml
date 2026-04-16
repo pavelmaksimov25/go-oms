@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: oms
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: go-oms-payment:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 50053
+          env:
+            - name: GRPC_PORT
+              value: "50053"
+            - name: KAFKA_BROKERS
+              value: "kafka.oms.svc.cluster.local:9092"

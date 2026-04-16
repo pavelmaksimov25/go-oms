@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saga-orchestrator
+  namespace: oms
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: saga-orchestrator
+  template:
+    metadata:
+      labels:
+        app: saga-orchestrator
+    spec:
+      containers:
+        - name: saga-orchestrator
+          image: go-oms-orchestrator:latest
+          imagePullPolicy: Never
+          env:
+            - name: KAFKA_BROKERS
+              value: "kafka.oms.svc.cluster.local:9092"
