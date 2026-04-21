@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/pavelmaksimov25/go-oms/pkg/proto/payment/v1;paymentv1";
+
+service PaymentService {
+  rpc GetPaymentStatus(GetPaymentStatusRequest) returns (GetPaymentStatusResponse);
+}
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_CHARGED = 1;
+  PAYMENT_STATUS_FAILED = 2;
+  PAYMENT_STATUS_REFUNDED = 3;
+}
+
+message GetPaymentStatusRequest {
+  string payment_id = 1;
+}
+
+message GetPaymentStatusResponse {
+  string payment_id = 1;
+  PaymentStatus status = 2;
+}

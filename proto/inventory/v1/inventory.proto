@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+option go_package = "github.com/pavelmaksimov25/go-oms/pkg/proto/inventory/v1;inventoryv1";
+
+service InventoryService {
+  rpc CheckStock(CheckStockRequest) returns (CheckStockResponse);
+}
+
+message CheckStockRequest {
+  string item_id = 1;
+}
+
+message CheckStockResponse {
+  string item_id = 1;
+  int32 available = 2;
+}
