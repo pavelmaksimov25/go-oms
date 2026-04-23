@@ -39,13 +39,13 @@ clean:
 # ── Run locally (Kafka must be running via compose-up) ───────────────────────
 
 run-order:
-	go run ./services/order
+	GRPC_PORT=50051 go run ./services/order
 
 run-inventory:
-	go run ./services/inventory
+	GRPC_PORT=50052 go run ./services/inventory
 
 run-payment:
-	go run ./services/payment
+	GRPC_PORT=50053 go run ./services/payment
 
 run-orchestrator:
 	go run ./services/orchestrator
