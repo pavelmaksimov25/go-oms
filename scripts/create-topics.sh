@@ -16,7 +16,7 @@ echo "==> Creating Kafka topics on ${BROKER}..."
 for topic in "${TOPICS[@]}"; do
     echo "    Creating topic: ${topic}"
     docker compose -f deployments/docker/docker-compose.yaml exec kafka \
-        kafka-topics.sh --create \
+        /opt/kafka/bin/kafka-topics.sh --create \
         --bootstrap-server localhost:9092 \
         --topic "${topic}" \
         --partitions 1 \
@@ -27,4 +27,4 @@ done
 
 echo "==> Done. Listing topics:"
 docker compose -f deployments/docker/docker-compose.yaml exec kafka \
-    kafka-topics.sh --list --bootstrap-server localhost:9092
+    /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
