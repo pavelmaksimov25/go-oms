@@ -2,52 +2,51 @@
 set -euo pipefail
 
 ORDER_HOST="${ORDER_HOST:-localhost:50051}"
+MAX_WAIT="${MAX_WAIT:-30}"
 
-echo "=== Happy Path Test (amount=100, should CONFIRM) ==="
+wait_for_status() {
+    local order_id="$1"
+    local want="$2"
+    local deadline=$((SECONDS + MAX_WAIT))
+    while [ $SECONDS -lt $deadline ]; do
+        local response
+        response=$(grpcurl -plaintext -d "{\"order_id\": \"${order_id}\"}" "${ORDER_HOST}" order.v1.OrderService/GetOrder 2>/dev/null)
+        if echo "${response}" | grep -q "${want}"; then
+            echo "${response}"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Timeout after ${MAX_WAIT}s waiting for ${want}"
+    echo "${response}"
+    return 1
+}
 
-RESPONSE=$(grpcurl -plaintext -d '{
-    "items": [{"item_id": "item-1", "quantity": 1}],
-    "total_amount": 100
-}' "${ORDER_HOST}" order.v1.OrderService/CreateOrder)
+run_case() {
+    local label="$1"
+    local amount="$2"
+    local item_id="$3"
+    local want_status="$4"
 
-echo "CreateOrder response:"
-echo "${RESPONSE}"
+    echo "=== ${label} (amount=${amount}, should ${want_status#ORDER_STATUS_}) ==="
+    local response
+    response=$(grpcurl -plaintext -d "{
+        \"items\": [{\"item_id\": \"${item_id}\", \"quantity\": 1}],
+        \"total_amount\": ${amount}
+    }" "${ORDER_HOST}" order.v1.OrderService/CreateOrder)
+    echo "CreateOrder response:"
+    echo "${response}"
 
-ORDER_ID=$(echo "${RESPONSE}" | grep -o '"orderId": "[^"]*"' | cut -d'"' -f4)
-if [ -z "${ORDER_ID}" ]; then
-    ORDER_ID=$(echo "${RESPONSE}" | grep -o '"order_id": "[^"]*"' | cut -d'"' -f4)
-fi
+    local order_id
+    order_id=$(echo "${response}" | grep -oE '"orderId": "[^"]*"' | cut -d'"' -f4)
+    [ -z "${order_id}" ] && order_id=$(echo "${response}" | grep -oE '"order_id": "[^"]*"' | cut -d'"' -f4)
 
-echo ""
-echo "Order ID: ${ORDER_ID}"
-echo "Waiting 3 seconds for saga to complete..."
-sleep 3
+    echo ""
+    echo "Order ID: ${order_id}"
+    echo "Polling for ${want_status} (max ${MAX_WAIT}s)..."
+    wait_for_status "${order_id}" "${want_status}"
+    echo ""
+}
 
-echo ""
-echo "GetOrder response:"
-grpcurl -plaintext -d "{\"order_id\": \"${ORDER_ID}\"}" "${ORDER_HOST}" order.v1.OrderService/GetOrder
-
-echo ""
-echo "=== Compensation Path Test (amount=5000, should REJECT) ==="
-
-RESPONSE2=$(grpcurl -plaintext -d '{
-    "items": [{"item_id": "item-2", "quantity": 1}],
-    "total_amount": 5000
-}' "${ORDER_HOST}" order.v1.OrderService/CreateOrder)
-
-echo "CreateOrder response:"
-echo "${RESPONSE2}"
-
-ORDER_ID2=$(echo "${RESPONSE2}" | grep -o '"orderId": "[^"]*"' | cut -d'"' -f4)
-if [ -z "${ORDER_ID2}" ]; then
-    ORDER_ID2=$(echo "${RESPONSE2}" | grep -o '"order_id": "[^"]*"' | cut -d'"' -f4)
-fi
-
-echo ""
-echo "Order ID: ${ORDER_ID2}"
-echo "Waiting 3 seconds for saga compensation..."
-sleep 3
-
-echo ""
-echo "GetOrder response (should be REJECTED):"
-grpcurl -plaintext -d "{\"order_id\": \"${ORDER_ID2}\"}" "${ORDER_HOST}" order.v1.OrderService/GetOrder
+run_case "Happy Path Test" 100  item-1 "ORDER_STATUS_CONFIRMED"
+run_case "Compensation Path Test" 5000 item-2 "ORDER_STATUS_REJECTED"
