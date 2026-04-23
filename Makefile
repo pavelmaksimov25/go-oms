@@ -89,7 +89,7 @@ k8s-deploy:
 	kubectl apply -f deployments/k8s/orchestrator/
 
 k8s-delete:
-	kubectl delete -f deployments/k8s/ --recursive --ignore-not-found
+	kubectl delete namespace oms --ignore-not-found
 
 # ── Integration test ─────────────────────────────────────────────────────────
 
