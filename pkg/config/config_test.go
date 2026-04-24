@@ -7,6 +7,7 @@ import (
 
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("GRPC_PORT", "")
+	t.Setenv("HTTP_PORT", "")
 	t.Setenv("KAFKA_BROKERS", "")
 
 	cfg := Load("order-service")
@@ -16,6 +17,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.GRPCPort != "50051" {
 		t.Errorf("GRPCPort = %q, want %q", cfg.GRPCPort, "50051")
+	}
+	if cfg.HTTPPort != "8080" {
+		t.Errorf("HTTPPort = %q, want %q", cfg.HTTPPort, "8080")
 	}
 	if !reflect.DeepEqual(cfg.KafkaBrokers, []string{"localhost:9092"}) {
 		t.Errorf("KafkaBrokers = %v, want [localhost:9092]", cfg.KafkaBrokers)

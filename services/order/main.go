@@ -5,10 +5,13 @@ import (
 	"errors"
 	"log"
 	"net"
+	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/pavelmaksimov25/go-oms/pkg/config"
+	"github.com/pavelmaksimov25/go-oms/pkg/health"
 	"github.com/pavelmaksimov25/go-oms/pkg/kafka"
 	order "github.com/pavelmaksimov25/go-oms/pkg/proto/order/v1"
 	"google.golang.org/grpc"
@@ -46,6 +49,19 @@ func run() error {
 	go func() {
 		consumeErr <- consumer.Consume(ctx, sagaConsumer.Handle)
 	}()
+
+	healthServer := &http.Server{
+		Addr:              ":" + cfg.HTTPPort,
+		Handler:           health.NewHandler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Printf("%s: health listening on :%s", serviceName, cfg.HTTPPort)
+		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("%s: health server exited: %v", serviceName, err)
+		}
+	}()
+	defer healthServer.Shutdown(context.Background())
 
 	listener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
 	if err != nil {

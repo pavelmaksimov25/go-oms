@@ -8,6 +8,7 @@ import (
 type Config struct {
 	ServiceName  string
 	GRPCPort     string
+	HTTPPort     string
 	KafkaBrokers []string
 }
 
@@ -15,6 +16,7 @@ func Load(serviceName string) *Config {
 	return &Config{
 		ServiceName:  serviceName,
 		GRPCPort:     getEnv("GRPC_PORT", "50051"),
+		HTTPPort:     getEnv("HTTP_PORT", "8080"),
 		KafkaBrokers: parseBrokers(getEnv("KAFKA_BROKERS", "localhost:9092")),
 	}
 }

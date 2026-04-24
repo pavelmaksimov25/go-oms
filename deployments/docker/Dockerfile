@@ -31,6 +31,6 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /bin/service /bin/service
 
-EXPOSE 50051
+EXPOSE 50051 8080
 
 ENTRYPOINT ["/bin/service"]
