@@ -17,6 +17,8 @@ import (
 	"github.com/pavelmaksimov25/go-oms/pkg/logger"
 	"github.com/pavelmaksimov25/go-oms/pkg/metrics"
 	payment "github.com/pavelmaksimov25/go-oms/pkg/proto/payment/v1"
+	"github.com/pavelmaksimov25/go-oms/pkg/tracing"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -36,6 +38,14 @@ func main() {
 
 func run() error {
 	cfg := config.Load(serviceName)
+
+	ctxInit, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownTracing, err := tracing.Init(ctxInit, serviceName)
+	cancelInit()
+	if err != nil {
+		return err
+	}
+	defer shutdownTracing(context.Background())
 
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -76,7 +86,7 @@ func run() error {
 		return err
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	payment.RegisterPaymentServiceServer(grpcServer, handler)
 	reflection.Register(grpcServer)
 
