@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const retryBackoff = time.Second
@@ -29,6 +32,8 @@ func NewConsumer(brokers []string, topic, groupID string) *Consumer {
 
 func (c *Consumer) Consume(ctx context.Context, handler Handler) error {
 	topic := c.reader.Config().Topic
+	groupID := c.reader.Config().GroupID
+	tracer := otel.Tracer("kafka")
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -44,7 +49,8 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) error {
 			}
 			continue
 		}
-		if err := handler(ctx, msg); err != nil {
+
+		if err := c.handleWithTrace(ctx, tracer, groupID, msg, handler); err != nil {
 			slog.Error("kafka handler failed", "topic", msg.Topic, "error", err)
 			continue
 		}
@@ -55,6 +61,26 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) error {
 			slog.Error("kafka commit failed", "topic", msg.Topic, "error", err)
 		}
 	}
+}
+
+func (c *Consumer) handleWithTrace(ctx context.Context, tracer trace.Tracer, groupID string, msg kafka.Message, handler Handler) error {
+	carrier := headerCarrier(msg.Headers)
+	ctx = otel.GetTextMapPropagator().Extract(ctx, &carrier)
+	ctx, span := tracer.Start(ctx, "kafka.consume",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.source.name", msg.Topic),
+			attribute.String("messaging.consumer.group", groupID),
+		),
+	)
+	defer span.End()
+
+	err := handler(ctx, msg)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
 }
 
 func (c *Consumer) Close() error {

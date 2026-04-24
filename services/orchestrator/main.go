@@ -15,6 +15,7 @@ import (
 	"github.com/pavelmaksimov25/go-oms/pkg/kafka"
 	"github.com/pavelmaksimov25/go-oms/pkg/logger"
 	"github.com/pavelmaksimov25/go-oms/pkg/metrics"
+	"github.com/pavelmaksimov25/go-oms/pkg/tracing"
 )
 
 const (
@@ -34,6 +35,14 @@ func main() {
 
 func run() error {
 	cfg := config.Load(serviceName)
+
+	ctxInit, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownTracing, err := tracing.Init(ctxInit, serviceName)
+	cancelInit()
+	if err != nil {
+		return err
+	}
+	defer shutdownTracing(context.Background())
 
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
