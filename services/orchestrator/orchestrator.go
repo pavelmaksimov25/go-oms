@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/pavelmaksimov25/go-oms/pkg/idempotency"
+	"github.com/pavelmaksimov25/go-oms/pkg/metrics"
 	saga "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1"
 	kafkago "github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
@@ -42,23 +43,25 @@ func (o *Orchestrator) HandleOrderCreated(ctx context.Context, msg kafkago.Messa
 	if err := proto.Unmarshal(msg.Value, &env); err != nil {
 		return fmt.Errorf("unmarshal envelope: %w", err)
 	}
-	return o.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
-		var evt saga.OrderCreatedEvent
-		if err := proto.Unmarshal(env.GetPayload(), &evt); err != nil {
-			return fmt.Errorf("unmarshal order.created payload: %w", err)
-		}
-		o.store.Create(&SagaData{
-			OrderID:     evt.GetOrderId(),
-			Items:       evt.GetItems(),
-			TotalAmount: evt.GetTotalAmount(),
-			State:       StateCreated,
+	return metrics.Observe(env.GetEventType(), func() error {
+		return o.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
+			var evt saga.OrderCreatedEvent
+			if err := proto.Unmarshal(env.GetPayload(), &evt); err != nil {
+				return fmt.Errorf("unmarshal order.created payload: %w", err)
+			}
+			o.store.Create(&SagaData{
+				OrderID:     evt.GetOrderId(),
+				Items:       evt.GetItems(),
+				TotalAmount: evt.GetTotalAmount(),
+				State:       StateCreated,
+			})
+			if err := o.publish(ctx, topicInventoryCommands, evt.GetOrderId(), eventInventoryReserve,
+				&saga.InventoryReserveCommand{OrderId: evt.GetOrderId(), Items: evt.GetItems()}); err != nil {
+				return err
+			}
+			o.store.Transition(evt.GetOrderId(), StateInventoryReserving)
+			return nil
 		})
-		if err := o.publish(ctx, topicInventoryCommands, evt.GetOrderId(), eventInventoryReserve,
-			&saga.InventoryReserveCommand{OrderId: evt.GetOrderId(), Items: evt.GetItems()}); err != nil {
-			return err
-		}
-		o.store.Transition(evt.GetOrderId(), StateInventoryReserving)
-		return nil
 	})
 }
 
@@ -73,8 +76,10 @@ func (o *Orchestrator) HandleSagaEvent(ctx context.Context, msg kafkago.Message)
 	if !ok {
 		return nil
 	}
-	return o.guard.Run(sagaID, eventType, func() error {
-		return handler(ctx, sagaID)
+	return metrics.Observe(eventType, func() error {
+		return o.guard.Run(sagaID, eventType, func() error {
+			return handler(ctx, sagaID)
+		})
 	})
 }
 

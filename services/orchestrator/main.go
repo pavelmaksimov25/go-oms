@@ -14,6 +14,7 @@ import (
 	"github.com/pavelmaksimov25/go-oms/pkg/health"
 	"github.com/pavelmaksimov25/go-oms/pkg/kafka"
 	"github.com/pavelmaksimov25/go-oms/pkg/logger"
+	"github.com/pavelmaksimov25/go-oms/pkg/metrics"
 )
 
 const (
@@ -48,18 +49,21 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	healthServer := &http.Server{
+	httpMux := http.NewServeMux()
+	health.RegisterRoutes(httpMux)
+	httpMux.Handle("/metrics", metrics.Handler())
+	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
-		Handler:           health.NewHandler(),
+		Handler:           httpMux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		slog.Info("health listening", "port", cfg.HTTPPort)
-		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("health server exited", "error", err)
+		slog.Info("http listening", "port", cfg.HTTPPort)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("http server exited", "error", err)
 		}
 	}()
-	defer healthServer.Shutdown(context.Background())
+	defer httpServer.Shutdown(context.Background())
 
 	errCh := make(chan error, 2)
 	go func() {
