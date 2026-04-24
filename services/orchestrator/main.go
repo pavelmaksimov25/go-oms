@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/pavelmaksimov25/go-oms/pkg/config"
+	"github.com/pavelmaksimov25/go-oms/pkg/health"
 	"github.com/pavelmaksimov25/go-oms/pkg/kafka"
 )
 
@@ -39,6 +43,19 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	healthServer := &http.Server{
+		Addr:              ":" + cfg.HTTPPort,
+		Handler:           health.NewHandler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Printf("%s: health listening on :%s", serviceName, cfg.HTTPPort)
+		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("%s: health server exited: %v", serviceName, err)
+		}
+	}()
+	defer healthServer.Shutdown(context.Background())
 
 	errCh := make(chan error, 2)
 	go func() {
