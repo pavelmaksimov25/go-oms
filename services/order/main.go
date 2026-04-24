@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/pavelmaksimov25/go-oms/pkg/config"
 	"github.com/pavelmaksimov25/go-oms/pkg/health"
 	"github.com/pavelmaksimov25/go-oms/pkg/kafka"
+	"github.com/pavelmaksimov25/go-oms/pkg/logger"
 	order "github.com/pavelmaksimov25/go-oms/pkg/proto/order/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -24,8 +26,10 @@ const (
 )
 
 func main() {
+	logger.Init(serviceName)
 	if err := run(); err != nil {
-		log.Fatalf("%s: %v", serviceName, err)
+		slog.Error("fatal", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -56,9 +60,9 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		log.Printf("%s: health listening on :%s", serviceName, cfg.HTTPPort)
+		slog.Info("health listening", "port", cfg.HTTPPort)
 		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("%s: health server exited: %v", serviceName, err)
+			slog.Error("health server exited", "error", err)
 		}
 	}()
 	defer healthServer.Shutdown(context.Background())
@@ -74,20 +78,20 @@ func run() error {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("%s: gRPC listening on :%s", serviceName, cfg.GRPCPort)
+		slog.Info("grpc listening", "port", cfg.GRPCPort)
 		serveErr <- grpcServer.Serve(listener)
 	}()
 
 	select {
 	case <-ctx.Done():
-		log.Printf("%s: shutting down", serviceName)
+		slog.Info("shutting down")
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			return err
 		}
 	case err := <-consumeErr:
 		if err != nil {
-			log.Printf("%s: consumer exited: %v", serviceName, err)
+			slog.Error("consumer exited", "error", err)
 		}
 	}
 

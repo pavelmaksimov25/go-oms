@@ -3,7 +3,7 @@ package kafka
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -28,6 +28,7 @@ func NewConsumer(brokers []string, topic, groupID string) *Consumer {
 }
 
 func (c *Consumer) Consume(ctx context.Context, handler Handler) error {
+	topic := c.reader.Config().Topic
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -37,21 +38,21 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil
 			}
-			log.Printf("kafka: fetch error on %s (will retry): %v", c.reader.Config().Topic, err)
+			slog.Warn("kafka fetch failed, retrying", "topic", topic, "error", err)
 			if sleep(ctx, retryBackoff) {
 				return nil
 			}
 			continue
 		}
 		if err := handler(ctx, msg); err != nil {
-			log.Printf("kafka: handler error on %s: %v", msg.Topic, err)
+			slog.Error("kafka handler failed", "topic", msg.Topic, "error", err)
 			continue
 		}
 		if err := c.reader.CommitMessages(ctx, msg); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil
 			}
-			log.Printf("kafka: commit error on %s: %v", msg.Topic, err)
+			slog.Error("kafka commit failed", "topic", msg.Topic, "error", err)
 		}
 	}
 }
