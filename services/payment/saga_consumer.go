@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pavelmaksimov25/go-oms/pkg/idempotency"
+	"github.com/pavelmaksimov25/go-oms/pkg/metrics"
 	payment "github.com/pavelmaksimov25/go-oms/pkg/proto/payment/v1"
 	saga "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1"
 	kafkago "github.com/segmentio/kafka-go"
@@ -46,8 +47,10 @@ func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
 	if env.GetEventType() != cmdPaymentCharge {
 		return nil
 	}
-	return c.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
-		return c.handleCharge(ctx, &env)
+	return metrics.Observe(env.GetEventType(), func() error {
+		return c.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
+			return c.handleCharge(ctx, &env)
+		})
 	})
 }
 

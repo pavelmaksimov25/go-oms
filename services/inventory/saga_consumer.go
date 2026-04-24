@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/pavelmaksimov25/go-oms/pkg/idempotency"
+	"github.com/pavelmaksimov25/go-oms/pkg/metrics"
 	saga "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1"
 	kafkago "github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
@@ -45,14 +46,16 @@ func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
 	if eventType != cmdInventoryReserve && eventType != cmdInventoryRelease {
 		return nil
 	}
-	return c.guard.Run(env.GetSagaId(), eventType, func() error {
-		switch eventType {
-		case cmdInventoryReserve:
-			return c.handleReserve(ctx, &env)
-		case cmdInventoryRelease:
-			return c.handleRelease(ctx, &env)
-		}
-		return nil
+	return metrics.Observe(eventType, func() error {
+		return c.guard.Run(env.GetSagaId(), eventType, func() error {
+			switch eventType {
+			case cmdInventoryReserve:
+				return c.handleReserve(ctx, &env)
+			case cmdInventoryRelease:
+				return c.handleRelease(ctx, &env)
+			}
+			return nil
+		})
 	})
 }
 
