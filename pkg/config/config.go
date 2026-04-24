@@ -10,6 +10,7 @@ type Config struct {
 	GRPCPort     string
 	HTTPPort     string
 	KafkaBrokers []string
+	DatabaseURL  string
 }
 
 func Load(serviceName string) *Config {
@@ -18,6 +19,7 @@ func Load(serviceName string) *Config {
 		GRPCPort:     getEnv("GRPC_PORT", "50051"),
 		HTTPPort:     getEnv("HTTP_PORT", "8080"),
 		KafkaBrokers: parseBrokers(getEnv("KAFKA_BROKERS", "localhost:9092")),
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
 	}
 }
 

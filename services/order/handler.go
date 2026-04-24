@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	order "github.com/pavelmaksimov25/go-oms/pkg/proto/order/v1"
@@ -23,11 +24,11 @@ type Publisher interface {
 
 type Handler struct {
 	order.UnimplementedOrderServiceServer
-	store     *Store
+	store     Store
 	publisher Publisher
 }
 
-func NewHandler(store *Store, publisher Publisher) *Handler {
+func NewHandler(store Store, publisher Publisher) *Handler {
 	return &Handler{store: store, publisher: publisher}
 }
 
@@ -40,7 +41,9 @@ func (h *Handler) CreateOrder(ctx context.Context, req *order.CreateOrderRequest
 		TotalAmount: req.GetTotalAmount(),
 		Status:      order.OrderStatus_ORDER_STATUS_PENDING,
 	}
-	h.store.Create(o)
+	if err := h.store.Create(ctx, o); err != nil {
+		return nil, status.Errorf(codes.Internal, "persist order: %v", err)
+	}
 
 	envelope, err := buildOrderCreatedEnvelope(orderID, req)
 	if err != nil {
@@ -56,10 +59,13 @@ func (h *Handler) CreateOrder(ctx context.Context, req *order.CreateOrderRequest
 	}, nil
 }
 
-func (h *Handler) GetOrder(_ context.Context, req *order.GetOrderRequest) (*order.GetOrderResponse, error) {
-	o, ok := h.store.Get(req.GetOrderId())
-	if !ok {
+func (h *Handler) GetOrder(ctx context.Context, req *order.GetOrderRequest) (*order.GetOrderResponse, error) {
+	o, err := h.store.Get(ctx, req.GetOrderId())
+	if errors.Is(err, ErrNotFound) {
 		return nil, status.Errorf(codes.NotFound, "order %s not found", req.GetOrderId())
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load order: %v", err)
 	}
 	return &order.GetOrderResponse{Order: o}, nil
 }

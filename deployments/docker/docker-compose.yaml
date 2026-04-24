@@ -22,5 +22,22 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
 
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=oms
+      - POSTGRES_PASSWORD=oms
+      - POSTGRES_DB=oms
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oms -d oms"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
 volumes:
   kafka-data:
+  postgres-data:

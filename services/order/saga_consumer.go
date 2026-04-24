@@ -18,15 +18,15 @@ const (
 )
 
 type SagaConsumer struct {
-	store *Store
+	store Store
 	guard *idempotency.Guard
 }
 
-func NewSagaConsumer(store *Store) *SagaConsumer {
+func NewSagaConsumer(store Store) *SagaConsumer {
 	return &SagaConsumer{store: store, guard: idempotency.NewGuard()}
 }
 
-func (c *SagaConsumer) Handle(_ context.Context, msg kafkago.Message) error {
+func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
 	var env saga.SagaEvent
 	if err := proto.Unmarshal(msg.Value, &env); err != nil {
 		return fmt.Errorf("unmarshal saga envelope: %w", err)
@@ -42,8 +42,7 @@ func (c *SagaConsumer) Handle(_ context.Context, msg kafkago.Message) error {
 	}
 	return metrics.Observe(env.GetEventType(), func() error {
 		return c.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
-			c.store.SetStatus(env.GetSagaId(), status)
-			return nil
+			return c.store.SetStatus(ctx, env.GetSagaId(), status)
 		})
 	})
 }

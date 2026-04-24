@@ -86,7 +86,7 @@ jobs:
           set -e
           mkdir -p /tmp/oms-logs
 
-          echo "==> Starting Kafka"
+          echo "==> Starting Kafka + Postgres"
           make compose-up
 
           echo "==> Waiting for Kafka"
@@ -101,11 +101,23 @@ jobs:
             sleep 2
           done
 
+          echo "==> Waiting for Postgres"
+          for i in $(seq 1 30); do
+            if docker compose -f deployments/docker/docker-compose.yaml exec -T postgres \
+                 pg_isready -U oms -d oms >/dev/null 2>&1; then
+              echo "Postgres ready after ${i} attempts"
+              break
+            fi
+            [ "${i}" = "30" ] && { echo "::error::Postgres not ready in 60s"; exit 1; }
+            sleep 2
+          done
+
           echo "==> Creating topics"
           ./scripts/create-topics.sh
 
           echo "==> Starting services"
-          GRPC_PORT=50051 nohup go run ./services/order         > /tmp/oms-logs/order.log         2>&1 &
+          GRPC_PORT=50051 DATABASE_URL=postgres://oms:oms@localhost:5432/oms \
+            nohup go run ./services/order                       > /tmp/oms-logs/order.log         2>&1 &
           GRPC_PORT=50052 nohup go run ./services/inventory     > /tmp/oms-logs/inventory.log     2>&1 &
           GRPC_PORT=50053 nohup go run ./services/payment       > /tmp/oms-logs/payment.log       2>&1 &
                           nohup go run ./services/orchestrator  > /tmp/oms-logs/orchestrator.log  2>&1 &

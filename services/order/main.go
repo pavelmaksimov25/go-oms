@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pavelmaksimov25/go-oms/pkg/config"
+	"github.com/pavelmaksimov25/go-oms/pkg/db"
 	"github.com/pavelmaksimov25/go-oms/pkg/health"
 	"github.com/pavelmaksimov25/go-oms/pkg/kafka"
 	"github.com/pavelmaksimov25/go-oms/pkg/logger"
@@ -53,7 +54,12 @@ func run() error {
 	consumer := kafka.NewConsumer(cfg.KafkaBrokers, consumerTopic, serviceName)
 	defer consumer.Close()
 
-	store := NewStore()
+	store, closeStore, err := buildStore(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer closeStore()
+
 	handler := NewHandler(store, producer)
 	sagaConsumer := NewSagaConsumer(store)
 
@@ -111,4 +117,24 @@ func run() error {
 
 	grpcServer.GracefulStop()
 	return nil
+}
+
+// buildStore returns a Postgres-backed store when dsn is non-empty, otherwise
+// an in-memory store. The second return value is a close func that the caller
+// must defer.
+func buildStore(ctx context.Context, dsn string) (Store, func(), error) {
+	if dsn == "" {
+		slog.Info("store: using in-memory (no DATABASE_URL set)")
+		return NewMemoryStore(), func() {}, nil
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := db.Migrate(ctx, pool, PostgresSchema); err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
+	slog.Info("store: using postgres")
+	return NewPostgresStore(pool), pool.Close, nil
 }
