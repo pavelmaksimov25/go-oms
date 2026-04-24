@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pavelmaksimov25/go-oms/pkg/idempotency"
 	saga "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1"
 	kafkago "github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
@@ -29,10 +30,11 @@ type Publisher interface {
 type Orchestrator struct {
 	store     *StateStore
 	publisher Publisher
+	guard     *idempotency.Guard
 }
 
 func NewOrchestrator(store *StateStore, publisher Publisher) *Orchestrator {
-	return &Orchestrator{store: store, publisher: publisher}
+	return &Orchestrator{store: store, publisher: publisher, guard: idempotency.NewGuard()}
 }
 
 func (o *Orchestrator) HandleOrderCreated(ctx context.Context, msg kafkago.Message) error {
@@ -40,24 +42,24 @@ func (o *Orchestrator) HandleOrderCreated(ctx context.Context, msg kafkago.Messa
 	if err := proto.Unmarshal(msg.Value, &env); err != nil {
 		return fmt.Errorf("unmarshal envelope: %w", err)
 	}
-	var evt saga.OrderCreatedEvent
-	if err := proto.Unmarshal(env.GetPayload(), &evt); err != nil {
-		return fmt.Errorf("unmarshal order.created payload: %w", err)
-	}
-
-	o.store.Create(&SagaData{
-		OrderID:     evt.GetOrderId(),
-		Items:       evt.GetItems(),
-		TotalAmount: evt.GetTotalAmount(),
-		State:       StateCreated,
+	return o.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
+		var evt saga.OrderCreatedEvent
+		if err := proto.Unmarshal(env.GetPayload(), &evt); err != nil {
+			return fmt.Errorf("unmarshal order.created payload: %w", err)
+		}
+		o.store.Create(&SagaData{
+			OrderID:     evt.GetOrderId(),
+			Items:       evt.GetItems(),
+			TotalAmount: evt.GetTotalAmount(),
+			State:       StateCreated,
+		})
+		if err := o.publish(ctx, topicInventoryCommands, evt.GetOrderId(), eventInventoryReserve,
+			&saga.InventoryReserveCommand{OrderId: evt.GetOrderId(), Items: evt.GetItems()}); err != nil {
+			return err
+		}
+		o.store.Transition(evt.GetOrderId(), StateInventoryReserving)
+		return nil
 	})
-
-	if err := o.publish(ctx, topicInventoryCommands, evt.GetOrderId(), eventInventoryReserve,
-		&saga.InventoryReserveCommand{OrderId: evt.GetOrderId(), Items: evt.GetItems()}); err != nil {
-		return err
-	}
-	o.store.Transition(evt.GetOrderId(), StateInventoryReserving)
-	return nil
 }
 
 func (o *Orchestrator) HandleSagaEvent(ctx context.Context, msg kafkago.Message) error {
@@ -65,21 +67,31 @@ func (o *Orchestrator) HandleSagaEvent(ctx context.Context, msg kafkago.Message)
 	if err := proto.Unmarshal(msg.Value, &env); err != nil {
 		return fmt.Errorf("unmarshal envelope: %w", err)
 	}
-
 	sagaID := env.GetSagaId()
-	switch env.GetEventType() {
-	case "inventory.reserved":
-		return o.onInventoryReserved(ctx, sagaID)
-	case "inventory.failed":
-		return o.onInventoryFailed(ctx, sagaID)
-	case "payment.charged":
-		return o.onPaymentCharged(ctx, sagaID)
-	case "payment.failed":
-		return o.onPaymentFailed(ctx, sagaID)
-	case "inventory.released":
-		return o.onInventoryReleased(ctx, sagaID)
+	eventType := env.GetEventType()
+	handler, ok := o.sagaEventHandler(eventType)
+	if !ok {
+		return nil
 	}
-	return nil
+	return o.guard.Run(sagaID, eventType, func() error {
+		return handler(ctx, sagaID)
+	})
+}
+
+func (o *Orchestrator) sagaEventHandler(eventType string) (func(context.Context, string) error, bool) {
+	switch eventType {
+	case "inventory.reserved":
+		return o.onInventoryReserved, true
+	case "inventory.failed":
+		return o.onInventoryFailed, true
+	case "payment.charged":
+		return o.onPaymentCharged, true
+	case "payment.failed":
+		return o.onPaymentFailed, true
+	case "inventory.released":
+		return o.onInventoryReleased, true
+	}
+	return nil, false
 }
 
 func (o *Orchestrator) onInventoryReserved(ctx context.Context, orderID string) error {

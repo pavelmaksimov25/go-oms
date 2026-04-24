@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pavelmaksimov25/go-oms/pkg/idempotency"
 	saga "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1"
 	kafkago "github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
@@ -28,10 +29,11 @@ type Publisher interface {
 type SagaConsumer struct {
 	store     *Store
 	publisher Publisher
+	guard     *idempotency.Guard
 }
 
 func NewSagaConsumer(store *Store, publisher Publisher) *SagaConsumer {
-	return &SagaConsumer{store: store, publisher: publisher}
+	return &SagaConsumer{store: store, publisher: publisher, guard: idempotency.NewGuard()}
 }
 
 func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
@@ -39,13 +41,19 @@ func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
 	if err := proto.Unmarshal(msg.Value, &env); err != nil {
 		return fmt.Errorf("unmarshal saga envelope: %w", err)
 	}
-	switch env.GetEventType() {
-	case cmdInventoryReserve:
-		return c.handleReserve(ctx, &env)
-	case cmdInventoryRelease:
-		return c.handleRelease(ctx, &env)
+	eventType := env.GetEventType()
+	if eventType != cmdInventoryReserve && eventType != cmdInventoryRelease {
+		return nil
 	}
-	return nil
+	return c.guard.Run(env.GetSagaId(), eventType, func() error {
+		switch eventType {
+		case cmdInventoryReserve:
+			return c.handleReserve(ctx, &env)
+		case cmdInventoryRelease:
+			return c.handleRelease(ctx, &env)
+		}
+		return nil
+	})
 }
 
 func (c *SagaConsumer) handleReserve(ctx context.Context, env *saga.SagaEvent) error {

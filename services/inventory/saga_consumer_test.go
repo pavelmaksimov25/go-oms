@@ -157,6 +157,29 @@ func TestInvalidEnvelope_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestReserve_DuplicateDelivery_IsNoOp(t *testing.T) {
+	store := NewStore()
+	pub := &fakePublisher{}
+	c := NewSagaConsumer(store, pub)
+
+	items := []*saga.OrderItem{{ItemId: "item-1", Quantity: 5}}
+	msg := reserveCmdEnvelope(t, "order-1", items)
+
+	if err := c.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first Handle err = %v", err)
+	}
+	if err := c.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("duplicate Handle err = %v", err)
+	}
+
+	if got := store.GetStock("item-1"); got != 95 {
+		t.Errorf("stock = %d after duplicate delivery, want 95 (reserved once)", got)
+	}
+	if len(pub.calls) != 1 {
+		t.Errorf("Publish called %d times, want 1", len(pub.calls))
+	}
+}
+
 func TestReserve_PublishError_IsPropagated(t *testing.T) {
 	pub := &fakePublisher{err: errors.New("kafka down")}
 	c := NewSagaConsumer(NewStore(), pub)
