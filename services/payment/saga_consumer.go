@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/pavelmaksimov25/go-oms/pkg/idempotency"
 	payment "github.com/pavelmaksimov25/go-oms/pkg/proto/payment/v1"
 	saga "github.com/pavelmaksimov25/go-oms/pkg/proto/saga/v1"
 	kafkago "github.com/segmentio/kafka-go"
@@ -30,10 +31,11 @@ type Publisher interface {
 type SagaConsumer struct {
 	store     *Store
 	publisher Publisher
+	guard     *idempotency.Guard
 }
 
 func NewSagaConsumer(store *Store, publisher Publisher) *SagaConsumer {
-	return &SagaConsumer{store: store, publisher: publisher}
+	return &SagaConsumer{store: store, publisher: publisher, guard: idempotency.NewGuard()}
 }
 
 func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
@@ -41,10 +43,12 @@ func (c *SagaConsumer) Handle(ctx context.Context, msg kafkago.Message) error {
 	if err := proto.Unmarshal(msg.Value, &env); err != nil {
 		return fmt.Errorf("unmarshal saga envelope: %w", err)
 	}
-	if env.GetEventType() == cmdPaymentCharge {
-		return c.handleCharge(ctx, &env)
+	if env.GetEventType() != cmdPaymentCharge {
+		return nil
 	}
-	return nil
+	return c.guard.Run(env.GetSagaId(), env.GetEventType(), func() error {
+		return c.handleCharge(ctx, &env)
+	})
 }
 
 func (c *SagaConsumer) handleCharge(ctx context.Context, env *saga.SagaEvent) error {

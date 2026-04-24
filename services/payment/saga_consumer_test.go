@@ -133,6 +133,31 @@ func TestChargeAtThreshold_1000_Charges(t *testing.T) {
 	}
 }
 
+func TestCharge_DuplicateDelivery_ChargesOnce(t *testing.T) {
+	store := NewStore()
+	pub := &fakePublisher{}
+	c := NewSagaConsumer(store, pub)
+	msg := chargeCmdEnvelope(t, "order-dup", 250)
+
+	if err := c.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first Handle err = %v", err)
+	}
+	if err := c.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("duplicate Handle err = %v", err)
+	}
+
+	if len(pub.calls) != 1 {
+		t.Errorf("Publish called %d times, want 1 (duplicate should be skipped)", len(pub.calls))
+	}
+	count := 0
+	store.mu.RLock()
+	count = len(store.payments)
+	store.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("payment records = %d, want 1", count)
+	}
+}
+
 func TestUnknownEvent_NoPublish(t *testing.T) {
 	pub := &fakePublisher{}
 	c := NewSagaConsumer(NewStore(), pub)

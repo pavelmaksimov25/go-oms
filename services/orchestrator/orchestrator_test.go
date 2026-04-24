@@ -206,6 +206,41 @@ func TestHandleSagaEvent_InventoryReleased_RejectsOrder(t *testing.T) {
 	}
 }
 
+func TestHandleOrderCreated_DuplicateDelivery_IsNoOp(t *testing.T) {
+	o, pub := newOrchestrator()
+	items := []*saga.OrderItem{{ItemId: "item-1", Quantity: 2}}
+	msg := sagaMsg(t, "order-dup", "order.created",
+		&saga.OrderCreatedEvent{OrderId: "order-dup", Items: items, TotalAmount: 50})
+
+	if err := o.HandleOrderCreated(context.Background(), msg); err != nil {
+		t.Fatalf("first err = %v", err)
+	}
+	if err := o.HandleOrderCreated(context.Background(), msg); err != nil {
+		t.Fatalf("duplicate err = %v", err)
+	}
+
+	if len(pub.calls) != 1 {
+		t.Errorf("Publish called %d times, want 1 (duplicate should be skipped)", len(pub.calls))
+	}
+}
+
+func TestHandleSagaEvent_DuplicateDelivery_IsNoOp(t *testing.T) {
+	o, pub := newOrchestrator()
+	o.store.Create(&SagaData{OrderID: "order-dup", TotalAmount: 500, State: StateInventoryReserving})
+
+	msg := sagaMsg(t, "order-dup", "inventory.reserved", &saga.InventoryReservedEvent{OrderId: "order-dup"})
+	if err := o.HandleSagaEvent(context.Background(), msg); err != nil {
+		t.Fatalf("first err = %v", err)
+	}
+	if err := o.HandleSagaEvent(context.Background(), msg); err != nil {
+		t.Fatalf("duplicate err = %v", err)
+	}
+
+	if len(pub.calls) != 1 {
+		t.Errorf("Publish called %d times, want 1", len(pub.calls))
+	}
+}
+
 func TestHandleSagaEvent_UnknownEvent_Ignored(t *testing.T) {
 	o, pub := newOrchestrator()
 
