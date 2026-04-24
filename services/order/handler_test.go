@@ -43,7 +43,7 @@ func (f *fakePublisher) lastCall(t *testing.T) publishCall {
 }
 
 func TestCreateOrder_StoresAndPublishesSagaEvent(t *testing.T) {
-	store := NewStore()
+	store := NewMemoryStore()
 	pub := &fakePublisher{}
 	h := NewHandler(store, pub)
 
@@ -63,9 +63,9 @@ func TestCreateOrder_StoresAndPublishesSagaEvent(t *testing.T) {
 		t.Errorf("response Status = %v, want PENDING", resp.GetStatus())
 	}
 
-	stored, ok := store.Get(resp.GetOrderId())
-	if !ok {
-		t.Fatal("order not persisted in store")
+	stored, err := store.Get(context.Background(), resp.GetOrderId())
+	if err != nil {
+		t.Fatalf("order not persisted in store: %v", err)
 	}
 	if stored.GetStatus() != order.OrderStatus_ORDER_STATUS_PENDING {
 		t.Errorf("stored Status = %v, want PENDING", stored.GetStatus())
@@ -106,7 +106,7 @@ func TestCreateOrder_StoresAndPublishesSagaEvent(t *testing.T) {
 }
 
 func TestCreateOrder_PublishFailure_ReturnsError(t *testing.T) {
-	store := NewStore()
+	store := NewMemoryStore()
 	pub := &fakePublisher{err: errors.New("kafka down")}
 	h := NewHandler(store, pub)
 
@@ -120,8 +120,8 @@ func TestCreateOrder_PublishFailure_ReturnsError(t *testing.T) {
 }
 
 func TestGetOrder_Found(t *testing.T) {
-	store := NewStore()
-	store.Create(&order.Order{OrderId: "abc", Status: order.OrderStatus_ORDER_STATUS_CONFIRMED, TotalAmount: 50})
+	store := NewMemoryStore()
+	_ = store.Create(context.Background(), &order.Order{OrderId: "abc", Status: order.OrderStatus_ORDER_STATUS_CONFIRMED, TotalAmount: 50})
 	h := NewHandler(store, &fakePublisher{})
 
 	resp, err := h.GetOrder(context.Background(), &order.GetOrderRequest{OrderId: "abc"})
@@ -134,7 +134,7 @@ func TestGetOrder_Found(t *testing.T) {
 }
 
 func TestGetOrder_NotFound(t *testing.T) {
-	h := NewHandler(NewStore(), &fakePublisher{})
+	h := NewHandler(NewMemoryStore(), &fakePublisher{})
 
 	_, err := h.GetOrder(context.Background(), &order.GetOrderRequest{OrderId: "missing"})
 	if err == nil {

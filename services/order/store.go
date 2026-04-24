@@ -1,37 +1,20 @@
 package main
 
 import (
-	"sync"
+	"context"
+	"errors"
 
 	order "github.com/pavelmaksimov25/go-oms/pkg/proto/order/v1"
 )
 
-type Store struct {
-	mu     sync.RWMutex
-	orders map[string]*order.Order
-}
+// ErrNotFound is returned by Store.Get when the order does not exist.
+var ErrNotFound = errors.New("order not found")
 
-func NewStore() *Store {
-	return &Store{orders: make(map[string]*order.Order)}
-}
-
-func (s *Store) Create(o *order.Order) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.orders[o.GetOrderId()] = o
-}
-
-func (s *Store) Get(orderID string) (*order.Order, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	o, ok := s.orders[orderID]
-	return o, ok
-}
-
-func (s *Store) SetStatus(orderID string, status order.OrderStatus) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if o, ok := s.orders[orderID]; ok {
-		o.Status = status
-	}
+// Store is the persistence contract for orders. Two implementations exist:
+// an in-memory map (used in tests) and a Postgres-backed store (used when
+// DATABASE_URL is set).
+type Store interface {
+	Create(ctx context.Context, o *order.Order) error
+	Get(ctx context.Context, orderID string) (*order.Order, error)
+	SetStatus(ctx context.Context, orderID string, status order.OrderStatus) error
 }
