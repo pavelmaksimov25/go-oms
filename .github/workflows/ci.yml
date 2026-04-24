@@ -60,3 +60,83 @@ jobs:
 
       - name: go test -race
         run: go test -race ./pkg/... ./services/order/... ./services/inventory/... ./services/payment/... ./services/orchestrator/...
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/go.mod
+          cache-dependency-path: |
+            pkg/go.sum
+            services/order/go.sum
+            services/inventory/go.sum
+            services/payment/go.sum
+            services/orchestrator/go.sum
+
+      - name: Install grpcurl
+        run: go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+
+      - name: Run saga end-to-end
+        run: |
+          set -e
+          mkdir -p /tmp/oms-logs
+
+          echo "==> Starting Kafka"
+          make compose-up
+
+          echo "==> Waiting for Kafka"
+          for i in $(seq 1 60); do
+            if docker compose -f deployments/docker/docker-compose.yaml exec -T kafka \
+                 /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092 \
+                 >/dev/null 2>&1; then
+              echo "Kafka ready after ${i} attempts"
+              break
+            fi
+            [ "${i}" = "60" ] && { echo "::error::Kafka not ready in 120s"; exit 1; }
+            sleep 2
+          done
+
+          echo "==> Creating topics"
+          ./scripts/create-topics.sh
+
+          echo "==> Starting services"
+          GRPC_PORT=50051 nohup go run ./services/order         > /tmp/oms-logs/order.log         2>&1 &
+          GRPC_PORT=50052 nohup go run ./services/inventory     > /tmp/oms-logs/inventory.log     2>&1 &
+          GRPC_PORT=50053 nohup go run ./services/payment       > /tmp/oms-logs/payment.log       2>&1 &
+                          nohup go run ./services/orchestrator  > /tmp/oms-logs/orchestrator.log  2>&1 &
+
+          echo "==> Waiting for gRPC ports"
+          for port in 50051 50052 50053; do
+            for i in $(seq 1 60); do
+              if bash -c "exec 3<>/dev/tcp/localhost/${port}" 2>/dev/null; then
+                echo "port ${port} ready"
+                break
+              fi
+              [ "${i}" = "60" ] && { echo "::error::port ${port} never came up"; exit 1; }
+              sleep 1
+            done
+          done
+
+          echo "==> Running saga test"
+          export PATH="$HOME/go/bin:$PATH"
+          ./scripts/test-order.sh
+
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: /tmp/oms-logs/
+          if-no-files-found: ignore
+
+      - name: Teardown
+        if: always()
+        run: |
+          pkill -f 'go-build.*services/' || true
+          pkill -f 'go run ./services/' || true
+          make compose-down || true
